@@ -7,6 +7,7 @@ import argparse
 from tracking import *
 from draw import *
 
+
 rectUserTopLeft, rectUserBottomRight = np.array([0, 0]), np.array([0, 0])
 grabMouseMove = False
 isAppPaused = False
@@ -33,10 +34,10 @@ def userRectangleCallback(event, x, y, flags, param):
         rectUserBottomRight = np.array([y, x])
 
         # properly update rectangle bounds
+
         # Y
         if rectUserTopLeft[0] > rectUserBottomRight[0]:
             rectUserBottomRight[0], rectUserTopLeft[0] = rectUserTopLeft[0], rectUserBottomRight[0]
-
         # X
         if rectUserTopLeft[1] > rectUserBottomRight[1]:
             rectUserBottomRight[1], rectUserTopLeft[1] = rectUserTopLeft[1], rectUserBottomRight[1]
@@ -45,7 +46,6 @@ def userRectangleCallback(event, x, y, flags, param):
 parser = argparse.ArgumentParser()
 parser.add_argument('-v', '--video', type=str, help='Video filename to track. Use webcam by default')
 args = parser.parse_args()
-print args.video
 isAppPaused = args.video is not None
 
 cv.namedWindow(nameWindow)

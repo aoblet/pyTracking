@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+
 def plotImageWithColorBar(I,cmap=plt.cm.Greys_r,title=''):
     """this function displays an image and a color bar"""
     fig = plt.figure(figsize=(8,7))
