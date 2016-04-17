@@ -20,5 +20,5 @@ def drawUserRectangle(frame, topLeft, bottomRight):
     drawRectangle(frame, topLeft, bottomRight, color=(255, 0, 0))
 
 
-def drawTracking(frame, tracking):
-    drawRectangle(frame, tracking.aa, tracking.bb, color=(0, 255, 0))
+def drawTracking(frame, resultTracking):
+    drawRectangle(frame, resultTracking.aa, resultTracking.bb, color=(0, 255, 0))

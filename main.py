@@ -34,7 +34,6 @@ def userRectangleCallback(event, x, y, flags, param):
         rectUserBottomRight = np.array([y, x])
 
         # properly update rectangle bounds
-
         # Y
         if rectUserTopLeft[0] > rectUserBottomRight[0]:
             rectUserBottomRight[0], rectUserTopLeft[0] = rectUserTopLeft[0], rectUserBottomRight[0]
@@ -46,18 +45,22 @@ def userRectangleCallback(event, x, y, flags, param):
 parser = argparse.ArgumentParser()
 parser.add_argument('-v', '--video', type=str, help='Video filename to track. Use webcam by default')
 args = parser.parse_args()
-isAppPaused = args.video is not None
+isAppPaused = canUserChangeRect = args.video is not None
+
 
 cv.namedWindow(nameWindow)
 cv.setMouseCallback(nameWindow, userRectangleCallback)
+
 
 capture = cv.VideoCapture(0 if args.video is None else args.video)
 if not capture.isOpened():
     raise ValueError('Cannot capture video: wrong file name or no webcam present')
 
 tracked = None
-
+cpt = 0
 while True:
+    # cv.waitKey(0)
+
     isCaptured, frame = capture.read()
     frameNp = np.asarray(frame)
 
@@ -66,18 +69,20 @@ while True:
         drawTracking(frame, tracked)
 
     while isAppPaused:
-        # handle user rectangle selection
+        # Handle user rectangle selection
         frameCpy = frame.copy()
         drawUserRectangle(frameCpy, rectUserTopLeft, rectUserBottomRight)
         cv.imshow(nameWindow, frameCpy)
 
         if cv.waitKey(20) & 0xFF == ord('p'):
             isAppPaused = canUserChangeRect = False
-            X = extractFromAABB(np.asarray(frame), rectUserTopLeft, rectUserBottomRight)
             center = (rectUserTopLeft + rectUserBottomRight) * 0.5
-            tracked = ResultTracking(rectUserTopLeft, rectUserBottomRight, center, hat_Qu(X, indexHistogram))
+            X_gray = extractFromAABB(np.asarray(frame), rectUserTopLeft, rectUserBottomRight, gray=True)
+            tracked = ResultTracking(rectUserTopLeft, rectUserBottomRight, center, hat_Qu(X_gray, indexesHistogram))
 
     cv.imshow(nameWindow, frame)
+
+    # User interaction
     keyPressed = cv.waitKey(20) & 0xFF
     if keyPressed == ord('q'):
         break
