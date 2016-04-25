@@ -26,6 +26,8 @@ def userRectangleCallback(event, x, y, flags, param):
 
     if event == cv.EVENT_LBUTTONDOWN:
         rectUserTopLeft = rectUserBottomRight = np.array([y, x])
+        rectUserTopLeft = np.array([y, x])
+        rectUserBottomRight = rectUserTopLeft + 50
         grabMouseMove = True
     elif event == cv.EVENT_LBUTTONUP:
         grabMouseMove = False
@@ -53,8 +55,12 @@ cv.setMouseCallback(nameWindow, userRectangleCallback)
 
 
 capture = cv.VideoCapture(0 if args.video is None else args.video)
+
 if not capture.isOpened():
     raise ValueError('Cannot capture video: wrong file name or no webcam present')
+
+capWidth = capture.get(cv.CAP_PROP_FRAME_WIDTH)
+capHeight= capture.get(cv.CAP_PROP_FRAME_HEIGHT)
 
 tracked = None
 cpt = 0
@@ -65,7 +71,7 @@ while True:
     frameNp = np.asarray(frame)
 
     if tracked is not None:
-        tracked = track(frame, tracked)
+        tracked = track(frame, tracked, modelDensity, captureWidth=capWidth, captureHeight=capHeight)
         drawTracking(frame, tracked)
 
     while isAppPaused:
@@ -74,11 +80,16 @@ while True:
         drawUserRectangle(frameCpy, rectUserTopLeft, rectUserBottomRight)
         cv.imshow(nameWindow, frameCpy)
 
-        if cv.waitKey(20) & 0xFF == ord('p'):
+        if cv.waitKey(1) & 0xFF == ord('c'):
+            print('in')
+            isC, frame = capture.read()
+            cv.imshow(nameWindow, frame)
+        elif cv.waitKey(20) & 0xFF == ord('p'):
             isAppPaused = canUserChangeRect = False
             center = (rectUserTopLeft + rectUserBottomRight) * 0.5
             X_gray = extractFromAABB(np.asarray(frame), rectUserTopLeft, rectUserBottomRight, gray=True)
-            tracked = ResultTracking(rectUserTopLeft, rectUserBottomRight, center, hat_Qu(X_gray, indexesHistogram))
+            tracked = ResultTracking(rectUserTopLeft, rectUserBottomRight, center)
+            modelDensity = hat_Qu(X_gray, indexesHistogram)
 
     cv.imshow(nameWindow, frame)
 

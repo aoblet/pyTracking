@@ -4,7 +4,7 @@ import scipy.ndimage
 from draw import *
 
 # RGB to luminance
-indexesHistogram = np.arange(0, 256)
+indexesHistogram = np.arange(0, 100)
 
 
 class ResultTracking:
@@ -12,7 +12,6 @@ class ResultTracking:
         self.aa = aa if np.all(aa) is not None else np.array([0, 0])
         self.bb = bb if np.all(bb) is not None else np.array([0, 0])
         self.center = center if np.all(center) is not None else np.array([0, 0])
-        self.densityFunction = densityFunction if np.all(densityFunction) is not None else np.array([])
 
 
 def deltaKron(a):
@@ -24,7 +23,7 @@ def k(x):
     # Epanechnikov kernel
     d = 2  # dimension 2
     mask = np.less(x, 1).astype(int)
-    a = 0.5 * (3.14**-1) * (d + 2) * (1-x) * mask
+    a = 0.5 * (3.14) * (d + 2) * (1-x) * mask
     # a = 3.0/4.0 * (1-x) * mask
     # a = ((2*3.14)**-0.5) * np.exp(-0.5*x)
     # plotImageWithColorBar(a)
@@ -70,7 +69,6 @@ def hat_Qu(X_gray, u):
     normXi = getNormXY(XiCentered[1], XiCentered[0])
     normWeight = k(normXi**2)
     C = 1.0/np.sum(normWeight)
-    binHisto = binHistoLuminance(X_gray)
 
     density = []
     for i in u:
@@ -79,18 +77,17 @@ def hat_Qu(X_gray, u):
     return np.array(density)
 
 
-def hat_Pu(X_gray, Ycenter, u, h):
-    return hat_Qu(X_gray, u)
-    # XiCentered = getCenteredCoord(X)
-    # normXi = getNormXY(XiCentered[0]/h, XiCentered[1]/h)
-    # normWeight = k(normXi**2)
-    # Ch = 1.0/np.sum(normWeight)
-    #
-    # density = []
-    # for i in u:
-    #     dKron = deltaKron(b(X)-i)
-    #     density.append(Ch * np.sum(normWeight * dKron))
-    # return np.array(density)
+def hat_Pu(X_gray, Ycenter, u, hx, hy):
+    XiCentered = getCenteredCoord(X_gray)
+    normXi = getNormXY(XiCentered[1]/hx , XiCentered[0]/hy)
+    normWeight = k(normXi**2)
+    C = 1.0/np.sum(normWeight)
+
+    density = []
+    for i in u:
+        dKron = deltaKron(b(X_gray)-i)
+        density.append(C * np.sum(normWeight * dKron))
+    return np.array(density)
 
 
 def binHistoLuminance(X_gray):
@@ -103,23 +100,23 @@ def binHistoLuminance(X_gray):
 
 
 def b(X_gray):
+    # plotHistoCurve((X_gray/255.0*indexesHistogram.shape[0]))
+    # plotHistoCurve((X_gray/255.0*1))
+    # pause()
     return np.floor((X_gray/255.0*indexesHistogram.shape[0]))
 
 
 def extractFromAABB(X, aa, bb, gray=False):
     data = X[aa[0]:bb[0], aa[1]:bb[1], :]
-    return np.asarray(cv.cvtColor(data, cv.COLOR_BGR2GRAY)) if gray else data
+    return cv.cvtColor(data, cv.COLOR_BGR2GRAY) if gray else data
 
 
 def weight(X_gray, hat_qu, hat_pu, u):
     res = np.zeros(X_gray.shape[0:2])
-    binHisto = binHistoLuminance(X_gray)
 
     for i in u:
-        res += deltaKron(b(X_gray) - i) * (0 if hat_pu[i] == 0 else np.sqrt(hat_qu[i]/(hat_pu[i])))
-
+        res += 0 if hat_pu[i] == 0 else deltaKron(b(X_gray) - i) * np.sqrt(hat_qu[i]/(hat_pu[i]))
     return res
-    # return gradient(res)
 
 
 def colorToCoord(X):
@@ -134,17 +131,24 @@ def gradient(X):
     return gradient_y, gradient_x
 
 
-def track(frame, previousTracking):
+def track(frame, previousTracking, modelDensity, captureWidth, captureHeight):
     """
     Process tracking in color space.
     """
-    h = 1
-    epsilon = 1
+    hx = np.abs(previousTracking.bb[1] - previousTracking.aa[1]) / 2
+    hy = np.abs(previousTracking.bb[0] - previousTracking.aa[0]) / 2
+    epsilon = 7
     frame = np.asarray(frame)
     frameCpy = frame.copy()
 
     X_gray = extractFromAABB(frame, previousTracking.aa, previousTracking.bb, gray=True)
-    hat_qu = previousTracking.densityFunction
+    hat_qu = modelDensity
+
+    # pause()
+    # Used for g(||(y -x)/h||**2)
+    Y0_minus_X_coords = getCenteredCoord(X_gray, False)
+    norm_Y0_minus_X = getNormXY(Y0_minus_X_coords[1]/hx, Y0_minus_X_coords[0]/hy)
+    gradKernelY, gradKernelX = g(norm_Y0_minus_X**2)
 
     # Target model
     Y0 = previousTracking.center.copy()
@@ -155,114 +159,70 @@ def track(frame, previousTracking):
     Y1 = Y0.copy()
     Y1_AA = previousTracking.aa.copy()
     Y1_BB = previousTracking.bb.copy()
-
-    battaX = []
-    battaY = []
-    battaZ = []
+    nbIterBatta = 0
 
     while True:
         Y0_color_gray = extractFromAABB(frame, Y0_AA, Y0_BB, gray=True)
-        hatPU_Y0 = hat_Pu(Y0_color_gray, Y0, indexesHistogram, h)
+        hatPU_Y0 = hat_Pu(Y0_color_gray, Y0, indexesHistogram, hx, hy)
         pY0 = np.sum(np.sqrt(hatPU_Y0 * hat_qu))
 
         weightX = weight(X_gray, hat_qu, hatPU_Y0, indexesHistogram)
-        # plotImageWithColorBar(weightX, title="weight")
-        # pause()
-        weightXY, weightXX = gradient(weightX)
-
-        Xcoords = getCenteredCoord(X_gray)
-
-        norm_Y0_minus_X = getNormXY(Xcoords[0], Xcoords[1])
-
-        gradKernelY, gradKernelX = g(norm_Y0_minus_X**2)
         wi_g_X = gradKernelX*weightX
         wi_g_Y = gradKernelY*weightX
 
-        # plotImageWithColorBar(norm_Y0_minus_X, title="normY0")
-        # plotImageWithColorBar(gradKernelX, title="gradKernelX")
-        # plotImageWithColorBar(gradKernelY, title="gradKernelY")
-        # pause()
-
-        Y1_y = np.sum(Xcoords[0]*wi_g_Y) / np.sum(wi_g_Y)
-        Y1_x = np.sum(Xcoords[1]*wi_g_X) / np.sum(wi_g_X)
-
+        Y1_y = np.sum(Y0_minus_X_coords[0]*wi_g_Y) / np.sum(wi_g_Y)
+        Y1_x = np.sum(Y0_minus_X_coords[1]*wi_g_X) / np.sum(wi_g_X)
         Y1_x = 0 if np.isnan(Y1_x) else Y1_x
         Y1_y = 0 if np.isnan(Y1_y) else Y1_y
 
-        print("Mean shift y1.x : %f" % Y1_x)
-        print("Mean shift y1.y : %f" % Y1_y)
-
-        # Mean shift result
-        # Y1_AA[1] += Y1_x
-        # Y1_AA[0] += Y1_y
-        # Y1_BB[1] += Y1_x
-        # Y1_BB[0] += Y1_y
-        # Y1[1] += Y1_x
-        # Y1[0] += Y1_y
+        # print("Mean shift y1.x : %f" % Y1_x)
+        # print("Mean shift y1.y : %f" % Y1_y)
 
         Y1_AA[1] = Y0_AA[1] + Y1_x
         Y1_AA[0] = Y0_AA[0] + Y1_y
         Y1_BB[1] = Y0_BB[1] + Y1_x
         Y1_BB[0] = Y0_BB[0] + Y1_y
-        Y1[1] = Y0[1] + (Y1_x*1)
-        Y1[0] = Y0[0] + (Y1_y*1)
+        Y1[1] = Y0[1] + Y1_x
+        Y1[0] = Y0[0] + Y1_y
 
-        drawRectangle(frameCpy, Y1_AA, Y1_BB, color=(255, 255, 255))
-        cv.imshow("res2", frameCpy)
+        # Keep the MS inside the video resolution
+        if Y1_AA[1] < 0 or Y1_BB[1] > captureWidth or Y1_AA[0] < 0 or Y1_BB[0] > captureHeight:
+            print("Warning: mean shift outside the the capture dimension")
+            return ResultTracking(aa=Y0_AA, bb=Y0_BB, center=Y0, densityFunction=hatPU_Y0)
+
+        # drawRectangle(frameCpy, Y1_AA, Y1_BB, color=(255, 255, 255))
+        # drawRectangle(frameCpy, previousTracking.aa, previousTracking.bb, color=(0, 0, 0))
+        # cv.imshow("res2", frameCpy)
 
         Y1_color_gray = extractFromAABB(frame, Y1_AA, Y1_BB, gray=True)
-        hatPU_Y1 = hat_Pu(Y1_color_gray, Y1, indexesHistogram, h)
-
+        hatPU_Y1 = hat_Pu(Y1_color_gray, Y1, indexesHistogram, hx, hy)
         pY1 = np.sum(np.sqrt(hatPU_Y1 * hat_qu))
-        battaZ.append(pY1)
-        battaX.append(Y1[1])
-        battaY.append(Y1[0])
 
-        print("pY1 %f " % pY1)
-        print("pY0 %f " % pY0)
-        print("batta diff: %f" % (pY0 - pY1))
+        # print("pY1 %f " % pY1)
+        # print("pY0 %f " % pY0)
+        # print("batta diff: %f" % (pY0 - pY1))
 
-        # plotHistoCurve(hat_qu, title="model density")
-        # pause()
-
-        # plotHistoCurve(hat_qu, "previous frame")
-        # plotHistoCurve(hatPU_Y0, "current frame")
-        # pause()
-
-        while pY1 < pY0 - 0.001:
+        # and np.linalg.norm(Y1 - Y0) > 0.00000001
+        while pY1 < pY0 and Y1[0] != Y0[0] and Y1[1] != Y0[1]:
             Y1 = (Y0 + Y1) * 0.5
             Y1_AA = (Y0_AA + Y1_AA) * 0.5
             Y1_BB = (Y0_BB + Y1_BB) * 0.5
 
-            # print(Y1_AA)
-            # print(Y1_BB)
-
             Y1_color_gray = extractFromAABB(frame, Y1_AA, Y1_BB, gray=True)
-            hatPU_Y1 = hat_Pu(Y1_color_gray, Y1, indexesHistogram, h)
+            hatPU_Y1 = hat_Pu(Y1_color_gray, Y1, indexesHistogram, hx, hy)
             pY1 = np.sum(np.sqrt(hatPU_Y1 * hat_qu))
-
-            # print("while pY1 %f " % pY1)
-            # print("while pY0 %f " % pY0)
-
-
-            battaZ.append(pY1)
-            battaX.append(Y1[1])
-            battaY.append(Y1[0])
-
-            drawRectangle(frameCpy, Y1_AA, Y1_BB, color=(0, 0, 255))
-            cv.imshow("res2", frameCpy)
-        print("py1 < py0 false")
+            # drawRectangle(frameCpy, Y1_AA, Y1_BB, color=(0, 0, msColorRect))
+            # cv.imshow("res2", frameCpy)
+            nbIterBatta += 1
 
         # If result found i.e distance between Y1 and Y0 less than a threshold, return tracking result
-        if np.linalg.norm(Y1 - Y0) < epsilon or pY0 == pY1:
-            print("FOUND")
+        if np.linalg.norm(Y1 - Y0) < epsilon:
+            print("nbIterBatta %d" % nbIterBatta)
+            # print("FOUND")
+            # drawRectangle(frameCpy, Y1_AA, Y1_BB, color=(0, 255, 0))
+            # cv.imshow("res2", frameCpy)
             # cv.waitKey(0)
-            # plot3D(battaX, battaY, battaZ, "battacha")
-            # pause()
-            drawRectangle(frameCpy, Y1_AA, Y1_BB, color=(255, 0, 0))
-            cv.imshow("res2", frameCpy)
-            hat_qu_Y1 = hat_Qu(Y1_color_gray, indexesHistogram)
-            return ResultTracking(aa=Y1_AA, bb=Y1_BB, center=Y1, densityFunction=hat_qu_Y1)
+            return ResultTracking(aa=Y1_AA, bb=Y1_BB, center=Y1, densityFunction=hat_qu)
 
         # Else candidate become the model by mean shift
         Y0 = Y1.copy()
